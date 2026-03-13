@@ -32,8 +32,8 @@ module Legion
             end
           end
 
-          def severity_gte?(a, b)
-            LEVEL_ORDER.fetch(a, 0) >= LEVEL_ORDER.fetch(b, 0)
+          def severity_gte?(left, right)
+            LEVEL_ORDER.fetch(left, 0) >= LEVEL_ORDER.fetch(right, 0)
           end
         end
       end
