@@ -9,9 +9,7 @@ module Legion
                                                       Legion::Extensions::Helpers.const_defined?(:Lex)
 
           def register_conflict(parties:, severity:, description:, **)
-            unless Helpers::Severity.valid_level?(severity)
-              return { error: :invalid_severity, valid: Helpers::Severity::LEVELS }
-            end
+            return { error: :invalid_severity, valid: Helpers::Severity::LEVELS } unless Helpers::Severity.valid_level?(severity)
 
             id = conflict_log.record(parties: parties, severity: severity, description: description)
             conflict = conflict_log.get(id)
