@@ -13,31 +13,48 @@ module Legion
 
             id = conflict_log.record(parties: parties, severity: severity, description: description)
             conflict = conflict_log.get(id)
+            Legion::Logging.info "[conflict] registered: id=#{id[0..7]} severity=#{severity} posture=#{conflict[:posture]} parties=#{parties.join(',')}"
             { conflict_id: id, severity: severity, posture: conflict[:posture] }
           end
 
           def add_exchange(conflict_id:, speaker:, message:, **)
             result = conflict_log.add_exchange(conflict_id, speaker: speaker, message: message)
-            result ? { recorded: true } : { error: :not_found }
+            if result
+              Legion::Logging.debug "[conflict] exchange: id=#{conflict_id[0..7]} speaker=#{speaker}"
+              { recorded: true }
+            else
+              Legion::Logging.debug "[conflict] exchange failed: id=#{conflict_id[0..7]} not found"
+              { error: :not_found }
+            end
           end
 
           def resolve_conflict(conflict_id:, outcome:, resolution_notes: nil, **)
             result = conflict_log.resolve(conflict_id, outcome: outcome, resolution_notes: resolution_notes)
-            result ? { resolved: true, outcome: outcome } : { error: :not_found }
+            if result
+              Legion::Logging.info "[conflict] resolved: id=#{conflict_id[0..7]} outcome=#{outcome}"
+              { resolved: true, outcome: outcome }
+            else
+              Legion::Logging.debug "[conflict] resolve failed: id=#{conflict_id[0..7]} not found"
+              { error: :not_found }
+            end
           end
 
           def get_conflict(conflict_id:, **)
             conflict = conflict_log.get(conflict_id)
+            Legion::Logging.debug "[conflict] get: id=#{conflict_id[0..7]} found=#{!conflict.nil?}"
             conflict ? { found: true, conflict: conflict } : { found: false }
           end
 
           def active_conflicts(**)
             conflicts = conflict_log.active_conflicts
+            Legion::Logging.debug "[conflict] active: count=#{conflicts.size}"
             { conflicts: conflicts, count: conflicts.size }
           end
 
           def recommended_posture(severity:, **)
-            { severity: severity, posture: Helpers::Severity.recommended_posture(severity) }
+            posture = Helpers::Severity.recommended_posture(severity)
+            Legion::Logging.debug "[conflict] posture: severity=#{severity} posture=#{posture}"
+            { severity: severity, posture: posture }
           end
 
           private
