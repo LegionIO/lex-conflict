@@ -12,7 +12,8 @@ module Legion
           PERSISTENT_THRESHOLD = :high
           STUBBORN_THRESHOLD   = :critical
 
-          LEVEL_ORDER = { low: 0, medium: 1, high: 2, critical: 3 }.freeze
+          LEVEL_ORDER             = { low: 0, medium: 1, high: 2, critical: 3 }.freeze
+          STALE_CONFLICT_TIMEOUT  = 86_400 # 24 hours
 
           module_function
 

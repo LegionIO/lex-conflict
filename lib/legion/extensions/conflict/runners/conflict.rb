@@ -51,6 +51,17 @@ module Legion
             { conflicts: conflicts, count: conflicts.size }
           end
 
+          def check_stale_conflicts(**)
+            active = conflict_log.active_conflicts
+            stale  = active.select { |c| Time.now.utc - c[:created_at] > Helpers::Severity::STALE_CONFLICT_TIMEOUT }
+            stale.each do |c|
+              conflict_log.add_exchange(c[:conflict_id], speaker: :system, message: 'conflict marked stale — no resolution after 24h')
+            end
+            stale_ids = stale.map { |c| c[:conflict_id] }
+            Legion::Logging.debug "[conflict] stale check: active=#{active.size} stale=#{stale.size}"
+            { checked: active.size, stale_count: stale.size, stale_ids: stale_ids }
+          end
+
           def recommended_posture(severity:, **)
             posture = Helpers::Severity.recommended_posture(severity)
             Legion::Logging.debug "[conflict] posture: severity=#{severity} posture=#{posture}"

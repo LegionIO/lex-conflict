@@ -53,4 +53,38 @@ RSpec.describe Legion::Extensions::Conflict::Runners::Conflict do
       expect(result[:posture]).to eq(:stubborn_presence)
     end
   end
+
+  describe '#check_stale_conflicts' do
+    it 'returns zero stale when no conflicts exist' do
+      result = client.check_stale_conflicts
+      expect(result[:checked]).to eq(0)
+      expect(result[:stale_count]).to eq(0)
+      expect(result[:stale_ids]).to eq([])
+    end
+
+    it 'returns zero stale for recently created conflicts' do
+      client.register_conflict(parties: %w[a b], severity: :low, description: 'fresh')
+      result = client.check_stale_conflicts
+      expect(result[:stale_count]).to eq(0)
+    end
+
+    it 'detects stale conflicts older than STALE_CONFLICT_TIMEOUT' do
+      c = client.register_conflict(parties: %w[a b], severity: :medium, description: 'old')
+      # Backdate the created_at timestamp
+      conflict = client.instance_variable_get(:@conflict_log).conflicts[c[:conflict_id]]
+      conflict[:created_at] = Time.now.utc - (Legion::Extensions::Conflict::Helpers::Severity::STALE_CONFLICT_TIMEOUT + 1)
+      result = client.check_stale_conflicts
+      expect(result[:stale_count]).to eq(1)
+      expect(result[:stale_ids]).to include(c[:conflict_id])
+    end
+
+    it 'does not include resolved conflicts in stale check' do
+      c = client.register_conflict(parties: %w[a b], severity: :low, description: 'resolved')
+      conflict = client.instance_variable_get(:@conflict_log).conflicts[c[:conflict_id]]
+      conflict[:created_at] = Time.now.utc - (Legion::Extensions::Conflict::Helpers::Severity::STALE_CONFLICT_TIMEOUT + 1)
+      client.resolve_conflict(conflict_id: c[:conflict_id], outcome: :closed)
+      result = client.check_stale_conflicts
+      expect(result[:stale_count]).to eq(0)
+    end
+  end
 end
