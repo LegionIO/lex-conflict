@@ -22,11 +22,15 @@ Conflict resolution subsystem for the LegionIO cognitive architecture. Registers
 lib/legion/extensions/conflict/
   version.rb
   helpers/
-    severity.rb      # LEVELS, POSTURES, LEVEL_ORDER, valid_level?, recommended_posture, severity_gte?
+    severity.rb      # LEVELS, POSTURES, LEVEL_ORDER, STALE_CONFLICT_TIMEOUT, valid_level?,
+                     # recommended_posture, severity_gte?
     conflict_log.rb  # ConflictLog class - UUID-keyed conflict records
+    llm_enhancer.rb  # LlmEnhancer module - suggest_resolution, analyze_stale_conflict
   runners/
     conflict.rb      # register_conflict, add_exchange, resolve_conflict, get_conflict,
-                     # active_conflicts, recommended_posture
+                     # active_conflicts, check_stale_conflicts, recommended_posture
+  actors/
+    stale_check.rb   # StaleCheck - Every 3600s, calls check_stale_conflicts
 spec/
   legion/extensions/conflict/
     runners/
@@ -39,7 +43,8 @@ spec/
 ```ruby
 LEVELS    = %i[low medium high critical]
 POSTURES  = %i[speak_once persistent_engagement stubborn_presence]
-LEVEL_ORDER = { low: 0, medium: 1, high: 2, critical: 3 }
+LEVEL_ORDER            = { low: 0, medium: 1, high: 2, critical: 3 }
+STALE_CONFLICT_TIMEOUT = 86_400  # 24 hours — conflicts active longer than this are flagged stale
 ```
 
 Posture selection:
@@ -73,14 +78,37 @@ Posture selection:
 
 `active_conflicts` filters by `status == :active`.
 
+## Actor
+
+| Actor | Schedule | Runner Method |
+|---|---|---|
+| `StaleCheck` | Every 3600s | `check_stale_conflicts` |
+
+`StaleCheck` runs hourly. It scans all active conflicts and flags any that have been open longer than `STALE_CONFLICT_TIMEOUT` (24h) by appending a system exchange. When `legion-llm` is available, the exchange message includes an LLM-generated analysis and recommendation instead of the generic stale notice.
+
+## LLM Enhancement
+
+`Helpers::LlmEnhancer` provides optional LLM-powered conflict analysis via `legion-llm`. It is used when `Legion::LLM.started?` returns true; all calls degrade gracefully to nil on error or when LLM is unavailable.
+
+| Method | Called From | Returns |
+|---|---|---|
+| `suggest_resolution(description:, severity:, exchanges:)` | `resolve_conflict` (when `resolution_notes` not provided) | `{ resolution_notes:, suggested_outcome: }` |
+| `analyze_stale_conflict(description:, severity:, age_hours:, exchange_count:)` | `check_stale_conflicts` (when LLM available) | `{ analysis:, recommendation: }` |
+
+`suggest_resolution` returns an outcome (`:resolved`, `:deferred`, or `:escalated`) and 2-3 sentence resolution notes describing the approach and next steps. `analyze_stale_conflict` returns a recommendation (`:escalate`, `:retry`, or `:close`) and an analysis explaining the rationale.
+
+**Fallback**: `suggest_resolution` returns nil (caller passes `nil` resolution_notes through to the log). `analyze_stale_conflict` returns nil (stale exchange uses the generic `"conflict marked stale — no resolution after 24h"` message).
+
 ## Integration Points
 
 - **lex-consent**: critical unresolved conflicts may block consent tier promotion
 - **lex-governance**: conflicts that cannot be resolved bilaterally may be escalated to governance proposals
 - **lex-tick**: `action_selection` phase checks for active `:critical` severity conflicts before proceeding
+- **legion-llm**: optional dependency for LLM-enhanced resolution suggestions and stale conflict analysis
 
 ## Development Notes
 
 - `register_conflict` validates severity before creating the record; invalid severity returns `{ error: :invalid_severity, valid: LEVELS }`
 - The `posture` field can be overridden by passing `posture:` to `ConflictLog#record`, but the runner always uses `recommended_posture`
 - Exchanges are stored in-memory without a size cap; long-running conflicts accumulate unbounded exchange history
+- `check_stale_conflicts` does not change conflict `status`; it only appends a system exchange to signal staleness
