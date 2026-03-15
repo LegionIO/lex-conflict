@@ -86,5 +86,66 @@ RSpec.describe Legion::Extensions::Conflict::Runners::Conflict do
       result = client.check_stale_conflicts
       expect(result[:stale_count]).to eq(0)
     end
+
+    context 'with LLM available' do
+      let(:fake_chat) { double }
+      let(:fake_analysis_response) do
+        double(content: "RECOMMENDATION: escalate\nANALYSIS: The conflict has stalled and needs governance intervention.")
+      end
+
+      before do
+        stub_const('Legion::LLM', double(respond_to?: true, started?: true))
+        allow(Legion::LLM).to receive(:chat).and_return(fake_chat)
+        allow(fake_chat).to receive(:with_instructions)
+        allow(fake_chat).to receive(:ask).and_return(fake_analysis_response)
+      end
+
+      it 'includes LLM analysis in the stale system exchange message' do
+        c = client.register_conflict(parties: %w[a b], severity: :high, description: 'ongoing issue')
+        conflict = client.instance_variable_get(:@conflict_log).conflicts[c[:conflict_id]]
+        conflict[:created_at] = Time.now.utc - (Legion::Extensions::Conflict::Helpers::Severity::STALE_CONFLICT_TIMEOUT + 1)
+
+        client.check_stale_conflicts
+
+        exchanges = client.instance_variable_get(:@conflict_log).conflicts[c[:conflict_id]][:exchanges]
+        expect(exchanges).not_to be_empty
+        system_msg = exchanges.find { |e| e[:speaker] == :system }
+        expect(system_msg).not_to be_nil
+        expect(system_msg[:message]).to include('governance intervention')
+      end
+    end
+  end
+
+  describe '#resolve_conflict with LLM' do
+    let(:fake_chat) { double }
+    let(:fake_resolution_response) do
+      double(content: <<~TEXT)
+        OUTCOME: resolved
+        NOTES: Both parties reached a compromise after reviewing the evidence. Next steps include documenting the outcome and monitoring for recurrence.
+      TEXT
+    end
+
+    before do
+      stub_const('Legion::LLM', double(respond_to?: true, started?: true))
+      allow(Legion::LLM).to receive(:chat).and_return(fake_chat)
+      allow(fake_chat).to receive(:with_instructions)
+      allow(fake_chat).to receive(:ask).and_return(fake_resolution_response)
+    end
+
+    it 'uses LLM-generated notes when no resolution_notes provided' do
+      c = client.register_conflict(parties: %w[a b], severity: :medium, description: 'test conflict')
+      client.resolve_conflict(conflict_id: c[:conflict_id], outcome: :compromise)
+
+      conflict = client.instance_variable_get(:@conflict_log).conflicts[c[:conflict_id]]
+      expect(conflict[:resolution_notes]).to include('compromise')
+    end
+
+    it 'preserves caller-provided resolution_notes over LLM' do
+      c = client.register_conflict(parties: %w[a b], severity: :medium, description: 'test conflict')
+      client.resolve_conflict(conflict_id: c[:conflict_id], outcome: :compromise, resolution_notes: 'manual notes')
+
+      conflict = client.instance_variable_get(:@conflict_log).conflicts[c[:conflict_id]]
+      expect(conflict[:resolution_notes]).to eq('manual notes')
+    end
   end
 end

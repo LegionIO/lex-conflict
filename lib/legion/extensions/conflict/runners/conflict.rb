@@ -29,6 +29,21 @@ module Legion
           end
 
           def resolve_conflict(conflict_id:, outcome:, resolution_notes: nil, **)
+            conflict = conflict_log.get(conflict_id)
+            unless conflict
+              Legion::Logging.debug "[conflict] resolve failed: id=#{conflict_id[0..7]} not found"
+              return { error: :not_found }
+            end
+
+            if resolution_notes.nil? && Helpers::LlmEnhancer.available?
+              llm_result = Helpers::LlmEnhancer.suggest_resolution(
+                description: conflict[:description],
+                severity:    conflict[:severity],
+                exchanges:   conflict[:exchanges]
+              )
+              resolution_notes = llm_result[:resolution_notes] if llm_result
+            end
+
             result = conflict_log.resolve(conflict_id, outcome: outcome, resolution_notes: resolution_notes)
             if result
               Legion::Logging.info "[conflict] resolved: id=#{conflict_id[0..7]} outcome=#{outcome}"
@@ -55,7 +70,20 @@ module Legion
             active = conflict_log.active_conflicts
             stale  = active.select { |c| Time.now.utc - c[:created_at] > Helpers::Severity::STALE_CONFLICT_TIMEOUT }
             stale.each do |c|
-              conflict_log.add_exchange(c[:conflict_id], speaker: :system, message: 'conflict marked stale — no resolution after 24h')
+              message = 'conflict marked stale — no resolution after 24h'
+
+              if Helpers::LlmEnhancer.available?
+                age_hours = (Time.now.utc - c[:created_at]) / 3600.0
+                analysis  = Helpers::LlmEnhancer.analyze_stale_conflict(
+                  description:    c[:description],
+                  severity:       c[:severity],
+                  age_hours:      age_hours,
+                  exchange_count: c[:exchanges].size
+                )
+                message = "conflict marked stale — #{analysis[:analysis]} (recommendation: #{analysis[:recommendation]})" if analysis
+              end
+
+              conflict_log.add_exchange(c[:conflict_id], speaker: :system, message: message)
             end
             stale_ids = stale.map { |c| c[:conflict_id] }
             Legion::Logging.debug "[conflict] stale check: active=#{active.size} stale=#{stale.size}"

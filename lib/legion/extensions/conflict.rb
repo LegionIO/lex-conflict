@@ -3,6 +3,7 @@
 require 'legion/extensions/conflict/version'
 require 'legion/extensions/conflict/helpers/severity'
 require 'legion/extensions/conflict/helpers/conflict_log'
+require 'legion/extensions/conflict/helpers/llm_enhancer'
 require 'legion/extensions/conflict/runners/conflict'
 
 module Legion
