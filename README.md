@@ -83,6 +83,23 @@ Legion::Extensions::Conflict::Runners::Conflict.recommended_posture(severity: :c
 # => { severity: :critical, posture: :stubborn_presence }
 ```
 
+## Actors
+
+| Actor | Interval | Description |
+|-------|----------|-------------|
+| `StaleCheck` | Every 3600s | Scans all active conflicts and flags any that have been open longer than STALE_CONFLICT_TIMEOUT (86400s) by appending a system exchange. When LLM enhancement is available, the exchange includes an LLM-generated analysis and recommendation instead of the generic stale notice. |
+
+## LLM Enhancement
+
+`Helpers::LlmEnhancer` provides optional LLM-powered conflict analysis when `legion-llm` is loaded and `Legion::LLM.started?` returns true. All methods rescue `StandardError` and return `nil` — callers always fall back to mechanical processing.
+
+| Method | Description |
+|--------|-------------|
+| `suggest_resolution(description:, severity:, exchanges:)` | Suggests resolution notes and a recommended outcome (`:resolved`, `:deferred`, or `:escalated`) for an active conflict based on its history |
+| `analyze_stale_conflict(description:, severity:, age_hours:, exchange_count:)` | Analyzes a stale conflict and returns a recommendation (`:escalate`, `:retry`, or `:close`) with explanatory analysis text |
+
+Mechanical fallback: `suggest_resolution` returns `nil` (caller passes `nil` resolution_notes through to the log). `analyze_stale_conflict` returns `nil` and the stale exchange uses the generic `"conflict marked stale — no resolution after 24h"` message.
+
 ## Development
 
 ```bash
